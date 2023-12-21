@@ -9,7 +9,7 @@
 #
 # NOTICE.
 #       Author: visualge@gmail.com (CountChu)
-#       Created on 2023/7/6
+#       Created on 2022/2/22
 #       Updated on 2023/11/14
 #
 
@@ -32,10 +32,13 @@ def build_args():
     Usage 1: Generate today's log from Evernote.
         python evernote_logger.py  
 
-    Usage 2: Generate a log from Evernote for a certain day.
+    Usage 2: Generate today's log from Evernote and order by notebooks.
+        python evernote_logger.py --nb
+
+    Usage 3: Generate a log from Evernote for a certain day.
         python evernote_logger.py --ymd 20210102
 
-    Usage 3: Generate today's log from Evernote with a specific config.
+    Usage 4: Generate today's log from Evernote with a specific config.
         python evernote_logger.py -c config-YOU.yaml
 '''
 
@@ -71,6 +74,12 @@ def build_args():
             default="config.yaml",
             help="Config file.")
 
+    parser.add_argument(
+            "--nb",
+            dest="notebook",
+            action='store_true',
+            help="Order by notebooks")
+
     #
     # Return arguments.
     #
@@ -105,7 +114,6 @@ def main():
     cfg = yaml.load(f, Loader=yaml.CLoader)
     f.close()
 
-
     #
     # Create an Evernote Wrapper object
     #
@@ -129,7 +137,7 @@ def main():
     # Search notebook "C1 - Auto"
     #
     
-    nb = ew.get_notebook(cfg['notebook'])
+    auto_nb = ew.get_notebook(cfg['notebook'])
 
     #
     # Specify yyyymmdd
@@ -270,6 +278,34 @@ def main():
         sys.exit(0)
 
     #
+    # If --nb, group note_ls by notebooks.
+    #   name_ls = []
+    #   name_notes[name] = note_ls
+    #
+
+    name_ls = []
+    name_notes = {}
+
+    if args.notebook:
+        nb_ls = ew.note_store.listNotebooks()
+        guid_name = {}
+        for nb in nb_ls:
+            guid_name[nb.guid] = nb.name
+
+
+        for note in note_ls:
+            name = guid_name[note['notebookGuid']]
+            if name not in name_notes:
+                name_notes[name] = []
+                name_ls.append(name)
+            name_notes[name].append(note)
+
+    else:
+        no_name = ''
+        name_ls.append(no_name)
+        name_notes[no_name] = note_ls
+
+    #
     # Build a note.
     #
 
@@ -278,32 +314,43 @@ def main():
     content += '<!DOCTYPE en-note SYSTEM "http://xml.evernote.com/pub/enml2.dtd">'
     content += '<en-note>'
     content += '<h1>%s %s</h1>' % (yyyymmdd[2:], c_day)
-    for note in note_ls:
-        title = html.escape(note['title'])
-        
-        _type = ''
-        if note['type'] == 'Update':
-            _type = '(U)'
-        
-        if args.prefix_datetime:
-            dt = note['dt']
-        else:
-            dt = note['dt'][11:]
 
-        print('title: ', title)
-        content += '<div>'
-        content += '%s&nbsp;&nbsp;<a href="%s">%s</a> %s' % (
-            dt, 
-            note['viewLink'], 
-            title, 
-            _type)
-        content += '</div>'
+    if 'headlines' in cfg:
+        for headline in cfg['headlines']:
+            content += '<h1>%s</h1>' % (headline)
+
+    for name in name_ls:
+        if name != '':
+            notebook_name = html.escape(name)
+            content += '<h2>%s</h2>' % (notebook_name)
+
+        for note in name_notes[name]:
+            title = html.escape(note['title'])
+            
+            _type = ''
+            if note['type'] == 'Update':
+                _type = '(U)'
+            
+            if args.prefix_datetime:
+                dt = note['dt']
+            else:
+                dt = note['dt'][11:]
+
+            print('title: ', title)
+            content += '<div>'
+            content += '%s&nbsp;&nbsp;<a href="%s">%s</a> %s' % (
+                dt, 
+                note['viewLink'], 
+                title, 
+                _type)
+            content += '</div>'
+
     content += '</en-note>'
 
     note_obj = Types.Note()
     note_obj.title = "Auto - Log - %s" % yyyymmdd[2:]
     note_obj.content = content
-    note_obj.notebookGuid = nb.guid
+    note_obj.notebookGuid = auto_nb.guid
     
     createdNote = ew.note_store.createNote(note_obj)
 
